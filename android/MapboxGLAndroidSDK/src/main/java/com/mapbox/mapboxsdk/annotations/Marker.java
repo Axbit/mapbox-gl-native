@@ -13,6 +13,10 @@ public final class Marker extends Annotation {
     private String snippet;
     private Sprite icon;
     private String title;
+
+
+
+    private boolean draggable = false;
     private InfoWindow infoWindow = null;
     private boolean infoWindowShown = false;
     private int topOffsetPixels;
@@ -44,6 +48,14 @@ public final class Marker extends Annotation {
             infoWindow.close();
         }
         infoWindowShown = false;
+    }
+
+    public boolean isDraggable() {
+        return draggable;
+    }
+
+    public void setDraggable(boolean draggable) {
+        this.draggable = draggable;
     }
 
     /**

@@ -29,6 +29,7 @@ public final class MarkerOptions implements Parcelable {
         Sprite icon = new Sprite(spriteId, spriteBitmap);
         icon(icon);
         title(in.readString());
+        draggable(in.readByte() == 1 ? true : false);
     }
 
     @Override
@@ -43,6 +44,7 @@ public final class MarkerOptions implements Parcelable {
         out.writeString(getIcon().getId());
         out.writeParcelable(getIcon().getBitmap(), flags);
         out.writeString(getTitle());
+        out.writeByte((byte)(isDraggable() ? 1 :0));
     }
 
     private Marker marker;
@@ -74,6 +76,10 @@ public final class MarkerOptions implements Parcelable {
         return marker.getIcon();
     }
 
+    public boolean isDraggable() {
+        return marker.isDraggable();
+    }
+
     public MarkerOptions position(LatLng position) {
         marker.setPosition(position);
         return this;
@@ -94,6 +100,11 @@ public final class MarkerOptions implements Parcelable {
         return this;
     }
 
+    public MarkerOptions draggable(boolean draggable) {
+        marker.setDraggable(draggable);
+        return this;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -107,6 +118,8 @@ public final class MarkerOptions implements Parcelable {
             return false;
         if (getIcon() != null ? !getIcon().equals(marker.getIcon()) : marker.getIcon() != null)
             return false;
+        if (isDraggable() != marker.isDraggable())
+            return false;
         return !(getTitle() != null ? !getTitle().equals(marker.getTitle()) : marker.getTitle() != null);
 
     }
@@ -118,6 +131,7 @@ public final class MarkerOptions implements Parcelable {
         result = 31 * result + (getSnippet() != null ? getSnippet().hashCode() : 0);
         result = 31 * result + (getIcon() != null ? getIcon().hashCode() : 0);
         result = 31 * result + (getTitle() != null ? getTitle().hashCode() : 0);
+        result = 31 * result + Boolean.valueOf(isDraggable()).hashCode();
         return result;
     }
 }
