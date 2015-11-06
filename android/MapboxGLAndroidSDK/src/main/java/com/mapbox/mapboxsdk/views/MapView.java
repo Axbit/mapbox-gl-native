@@ -99,6 +99,7 @@ import java.util.List;
  */
 public final class MapView extends FrameLayout {
 
+
     //
     // Static members
     //
@@ -1678,6 +1679,7 @@ public final class MapView extends FrameLayout {
             icon = getSpriteFactory().defaultMarker();
             marker.setIcon(icon);
         }
+        marker.setDraggable(markerOptions.isDraggable());
         if (!mSprites.contains(icon)) {
             mSprites.add(icon);
             loadSprite(icon);
