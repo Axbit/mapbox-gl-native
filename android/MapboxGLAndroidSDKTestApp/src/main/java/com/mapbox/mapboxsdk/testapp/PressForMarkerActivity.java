@@ -6,9 +6,11 @@ import android.support.annotation.NonNull;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.util.Log;
 import android.view.MenuItem;
 import android.view.ViewGroup;
 
+import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerOptions;
 import com.mapbox.mapboxsdk.constants.Style;
 import com.mapbox.mapboxsdk.geometry.LatLng;
@@ -19,6 +21,8 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 
 public class PressForMarkerActivity extends AppCompatActivity implements MapView.OnMapLongClickListener {
+
+    private static final String LOG_TAG = PressForMarkerActivity.class.getName();
 
     private MapView mMapView;
     private ArrayList<MarkerOptions> mMarkerList = new ArrayList<>();
@@ -47,8 +51,26 @@ public class PressForMarkerActivity extends AppCompatActivity implements MapView
         mMapView.setCenterCoordinate(new LatLng(45.1855569, 5.7215506));
         mMapView.setZoomLevel(11);
         mMapView.setOnMapLongClickListener(this);
-        ((ViewGroup) findViewById(R.id.activity_container)).addView(mMapView);
 
+        mMapView.setOnMarkerDragListener(new MapView.OnMarkerDragListener() {
+            @Override
+            public void onMarkerDragStart(Marker marker) {
+                Log.d(LOG_TAG, "onMarkerDragStart:" + marker.getPosition());
+
+            }
+
+            @Override
+            public void onMarkerDrag(@NonNull Marker marker) {
+                Log.d(LOG_TAG, "onMarkerDrag:" + marker.getPosition());
+            }
+
+            @Override
+            public void onMarkerDragEnd(Marker marker) {
+                Log.d(LOG_TAG, "onMarkerDragEnd:" + marker.getPosition());
+            }
+        });
+
+        ((ViewGroup) findViewById(R.id.activity_container)).addView(mMapView);
         if (savedInstanceState != null) {
             mMarkerList = savedInstanceState.getParcelableArrayList(STATE_MARKER_LIST);
             mMapView.addMarkers(mMarkerList);
@@ -73,6 +95,7 @@ public class PressForMarkerActivity extends AppCompatActivity implements MapView
         MarkerOptions marker = new MarkerOptions()
                 .position(point)
                 .title(title)
+                .draggable(true)
                 .snippet(snippet);
 
         mMarkerList.add(marker);

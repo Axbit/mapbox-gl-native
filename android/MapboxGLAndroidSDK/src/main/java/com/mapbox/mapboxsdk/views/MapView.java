@@ -81,6 +81,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -203,6 +204,7 @@ public final class MapView extends FrameLayout {
     private final List<Annotation> mAnnotations = new ArrayList<>();
     private List<Marker> mMarkersNearLastTap = new ArrayList<>();
     private Marker mSelectedMarker;
+    private Marker mDraggedMarker;
     private InfoWindowAdapter mInfoWindowAdapter;
     private SpriteFactory mSpriteFactory;
     private ArrayList<Sprite> mSprites = new ArrayList<>();
@@ -219,6 +221,7 @@ public final class MapView extends FrameLayout {
     // Used to manage map click event listeners
     private OnMapClickListener mOnMapClickListener;
     private OnMapLongClickListener mOnMapLongClickListener;
+    private OnMarkerDragListener mOnMarkerDragListener;
 
     // Used to manage fling and scroll event listeners
     private OnFlingListener mOnFlingListener;
@@ -240,6 +243,8 @@ public final class MapView extends FrameLayout {
     private boolean mScrollEnabled = true;
     private boolean mRotateEnabled = true;
     private String mStyleUrl;
+    private boolean mInLongPress = false;
+
 
     //
     // Inner classes
@@ -428,6 +433,28 @@ public final class MapView extends FrameLayout {
         void onMapLongClick(@NonNull LatLng point);
     }
 
+    public interface OnMarkerDragListener {
+
+        /**
+         * Called when the user starts dragging a marker
+         *
+         * @param marker The marker the user starts dragging
+         */
+        abstract void onMarkerDragStart(Marker marker);
+        /**
+         * Called when the user drags a marker
+         *
+         * @param marker The marker the user is dragging
+         */
+        void onMarkerDrag(@NonNull Marker marker);
+        /**
+         * Called when the user stops dragging a marker
+         *
+         * @param marker The marker the user starts dragging
+         */
+        abstract void onMarkerDragEnd(Marker marker);
+    }
+
     /**
      * Interface definition for a callback to be invoked when the user clicks on a marker.
      *
@@ -472,6 +499,8 @@ public final class MapView extends FrameLayout {
          */
         void onMapChanged(@MapChange int change);
     }
+
+
 
     /**
      * Interface definition for a callback to be invoked when an info window will be shown.
@@ -1760,6 +1789,17 @@ public final class MapView extends FrameLayout {
     }
 
     /**
+     * Do not use this method, it is called internally
+     */
+    public void updateMarkerPosition(Marker marker) {
+
+        mNativeMapView.removeAnnotation(marker.getId());
+        long newId = mNativeMapView.addMarker(marker);
+        marker.setId(newId);
+
+    }
+
+    /**
      * Adds a polyline to this map.
      *
      * @param polylineOptions A polyline options object that defines how to render the polyline.
@@ -2327,18 +2367,46 @@ public final class MapView extends FrameLayout {
                     mTwoTap = false;
                     return true;
                 }
-
                 mTwoTap = false;
+                mInLongPress = false;
+                if (mDraggedMarker != null) {
+                    mDraggedMarker.setPosition(fromScreenLocation(new PointF(event.getX(), event.getY())));
+                    if (mOnMarkerDragListener != null) {
+                        mOnMarkerDragListener.onMarkerDragEnd(mDraggedMarker);
+                    }
+                }
+                mDraggedMarker = null;
                 mNativeMapView.setGestureInProgress(false);
                 break;
 
             case MotionEvent.ACTION_CANCEL:
                 mTwoTap = false;
+                mInLongPress = false;
                 mNativeMapView.setGestureInProgress(false);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (mDraggedMarker != null) {
+                    mDraggedMarker.setPosition(fromScreenLocation(new PointF(event.getX(), event.getY())));
+                    if (mOnMarkerDragListener != null) {
+                        mOnMarkerDragListener.onMarkerDrag(mDraggedMarker);
+                    }
+                }
                 break;
         }
 
         boolean retVal = mGestureDetector.onTouchEvent(event);
+        /*
+        boolean inProgress = mRotateGestureDetector.isInProgress() || mScaleGestureDetector.isInProgress();
+        if (!retVal && !inProgress && mInLongPress && ) {
+            if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                if (mOnMarkerDragListener != null) {
+                    retVal = true;
+                    LatLng point = fromScreenLocation(new PointF(event.getX(), event.getY()));
+                   //TODO mOnMarkerDragListener.onMove(point);
+                }
+            }
+        }
+        */
         return retVal || super.onTouchEvent(event);
     }
 
@@ -2388,59 +2456,11 @@ public final class MapView extends FrameLayout {
             // Open / Close InfoWindow
             PointF tapPoint = new PointF(e.getX(), e.getY());
 
-            final float toleranceSides = 30 * mScreenDensity;
-            final float toleranceTop = 40 * mScreenDensity;
-            final float toleranceBottom = 10 * mScreenDensity;
-
-            RectF tapRect = new RectF(tapPoint.x - toleranceSides, tapPoint.y + toleranceTop,
-                    tapPoint.x + toleranceSides, tapPoint.y - toleranceBottom);
-
-            List<LatLng> corners = Arrays.asList(
-                    fromScreenLocation(new PointF(tapRect.left, tapRect.bottom)),
-                    fromScreenLocation(new PointF(tapRect.left, tapRect.top)),
-                    fromScreenLocation(new PointF(tapRect.right, tapRect.top)),
-                    fromScreenLocation(new PointF(tapRect.right, tapRect.bottom))
-            );
-
-            BoundingBox tapBounds = BoundingBox.fromLatLngs(corners);
+            BoundingBox tapBounds = getBoundingBoxForMarkerSelection(tapPoint);
 
             List<Marker> nearbyMarkers = getMarkersInBounds(tapBounds);
 
-            long newSelectedMarkerId;
-
-            if (nearbyMarkers.size() > 0) {
-
-                // there is at least one nearby marker; select one
-                //
-                // first, sort for comparison and iteration
-                Collections.sort(nearbyMarkers);
-
-                if (nearbyMarkers == mMarkersNearLastTap) {
-                    // the selection candidates haven't changed; cycle through them
-                    if (mSelectedMarker != null && (mSelectedMarker.getId() == mMarkersNearLastTap.get(mMarkersNearLastTap.size() - 1).getId())) {
-                        // the selected marker is the last in the set; cycle back to the first
-                        // note: this could be the selected marker if only one in set
-                        newSelectedMarkerId = mMarkersNearLastTap.get(0).getId();
-                    } else if (mSelectedMarker != null) {
-                        // otherwise increment the selection through the candidates
-                        long result = mMarkersNearLastTap.indexOf(mSelectedMarker);
-                        newSelectedMarkerId = mMarkersNearLastTap.get((int) result + 1).getId();
-                    } else {
-                        // no current selection; select the first one
-                        newSelectedMarkerId = mMarkersNearLastTap.get(0).getId();
-                    }
-                } else {
-                    // start tracking a new set of nearby markers
-                    mMarkersNearLastTap = nearbyMarkers;
-
-                    // select the first one
-                    newSelectedMarkerId = mMarkersNearLastTap.get(0).getId();
-                }
-
-            } else {
-                // there are no nearby markers; deselect if necessary
-                newSelectedMarkerId = -1;
-            }
+            long newSelectedMarkerId = getNewSelectedMarkerId(nearbyMarkers);
 
             if (newSelectedMarkerId >= 0) {
 
@@ -2474,8 +2494,50 @@ public final class MapView extends FrameLayout {
         // Called for a long press
         @Override
         public void onLongPress(MotionEvent e) {
-            if (mOnMapLongClickListener != null) {
-                LatLng point = fromScreenLocation(new PointF(e.getX(), e.getY()));
+            mInLongPress = true;
+            mDraggedMarker = null;
+            boolean fireOnMapLongClick = true;
+            final PointF tapPoint = new PointF(e.getX(), e.getY());
+            BoundingBox tapBounds = getBoundingBoxForMarkerSelection(tapPoint);
+            List<Marker> nearbyMarkers = getMarkersInBounds(tapBounds);
+            // Only consider draggable markers
+            Iterator<Marker> it = nearbyMarkers.iterator();
+            while (it.hasNext()) {
+                Marker marker = it.next();
+                if (!marker.isDraggable()) it.remove();
+            }
+            // If we already have a selected marker, check that it satisfies the bounding constraints
+            if (mSelectedMarker != null) {
+                if (nearbyMarkers.contains(mSelectedMarker)) {
+                    mDraggedMarker = mSelectedMarker;
+                }
+            }
+            // If we still havent found a draggable candidate, start new selection
+            if (mDraggedMarker == null) {
+                long newSelectedMarkerId = getNewSelectedMarkerId(nearbyMarkers);
+                if (newSelectedMarkerId >= 0) {
+                    for (Annotation annotation : mAnnotations) {
+                        if (annotation instanceof Marker) {
+                            if (annotation.getId() == newSelectedMarkerId) {
+                                if (mSelectedMarker == null || annotation.getId() != mSelectedMarker.getId()) {
+                                    selectMarker((Marker) annotation);
+                                    mDraggedMarker = mSelectedMarker;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (mDraggedMarker != null) {
+                mDraggedMarker.hideInfoWindow();
+                if (mOnMarkerDragListener != null) {
+                    fireOnMapLongClick = false;
+                    mOnMarkerDragListener.onMarkerDragStart(mDraggedMarker);
+                }
+            }
+            if (fireOnMapLongClick && mOnMapLongClickListener != null) {
+                LatLng point = fromScreenLocation(tapPoint);
                 mOnMapLongClickListener.onMapLongClick(point);
             }
         }
@@ -2513,6 +2575,7 @@ public final class MapView extends FrameLayout {
         // Called for drags
         @Override
         public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+
             if (!mScrollEnabled) {
                 return false;
             }
@@ -2529,6 +2592,62 @@ public final class MapView extends FrameLayout {
 
             return true;
         }
+    }
+
+    private long getNewSelectedMarkerId(List<Marker> nearbyMarkers) {
+        long newSelectedMarkerId;
+        if (nearbyMarkers.size() > 0) {
+
+            // there is at least one nearby marker; select one
+            //
+            // first, sort for comparison and iteration
+            Collections.sort(nearbyMarkers);
+
+            if (nearbyMarkers == mMarkersNearLastTap) {
+                // the selection candidates haven't changed; cycle through them
+                if (mSelectedMarker != null && (mSelectedMarker.getId() == mMarkersNearLastTap.get(mMarkersNearLastTap.size() - 1).getId())) {
+                    // the selected marker is the last in the set; cycle back to the first
+                    // note: this could be the selected marker if only one in set
+                    newSelectedMarkerId = mMarkersNearLastTap.get(0).getId();
+                } else if (mSelectedMarker != null) {
+                    // otherwise increment the selection through the candidates
+                    long result = mMarkersNearLastTap.indexOf(mSelectedMarker);
+                    newSelectedMarkerId = mMarkersNearLastTap.get((int) result + 1).getId();
+                } else {
+                    // no current selection; select the first one
+                    newSelectedMarkerId = mMarkersNearLastTap.get(0).getId();
+                }
+            } else {
+                // start tracking a new set of nearby markers
+                mMarkersNearLastTap = nearbyMarkers;
+
+                // select the first one
+                newSelectedMarkerId = mMarkersNearLastTap.get(0).getId();
+            }
+
+        } else {
+            // there are no nearby markers; deselect if necessary
+            newSelectedMarkerId = -1;
+        }
+        return newSelectedMarkerId;
+    }
+
+    private BoundingBox getBoundingBoxForMarkerSelection(PointF tapPoint) {
+        final float toleranceSides = 30 * mScreenDensity;
+        final float toleranceTop = 40 * mScreenDensity;
+        final float toleranceBottom = 10 * mScreenDensity;
+
+        RectF tapRect = new RectF(tapPoint.x - toleranceSides, tapPoint.y + toleranceTop,
+                tapPoint.x + toleranceSides, tapPoint.y - toleranceBottom);
+
+        List<LatLng> corners = Arrays.asList(
+                fromScreenLocation(new PointF(tapRect.left, tapRect.bottom)),
+                fromScreenLocation(new PointF(tapRect.left, tapRect.top)),
+                fromScreenLocation(new PointF(tapRect.right, tapRect.top)),
+                fromScreenLocation(new PointF(tapRect.right, tapRect.bottom))
+        );
+
+        return BoundingBox.fromLatLngs(corners);
     }
 
     // This class handles two finger gestures
@@ -3117,6 +3236,17 @@ public final class MapView extends FrameLayout {
     @UiThread
     public void setOnMapClickListener(@Nullable OnMapClickListener listener) {
         mOnMapClickListener = listener;
+    }
+
+    /**
+     * Sets a callback that's invoked when the user performs a Move (not scroll) in the map view.
+     *
+     * @param listener The callback that's invoked when the user moves in  the map view.
+     *                 To unset the callback, use null.
+     */
+    @UiThread
+    public void setOnMarkerDragListener(@Nullable OnMarkerDragListener listener) {
+        mOnMarkerDragListener = listener;
     }
 
     /**

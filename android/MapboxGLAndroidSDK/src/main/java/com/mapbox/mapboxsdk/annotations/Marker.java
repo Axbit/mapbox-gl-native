@@ -65,8 +65,12 @@ public final class Marker extends Annotation {
         return infoWindowShown;
     }
 
-    void setPosition(LatLng position) {
+    public void setPosition(LatLng position) {
         this.position = position;
+        MapView view = getMapView();
+        if (view != null) {
+            view.updateMarkerPosition(this);
+        }
     }
 
     void setSnippet(String snippet) {
