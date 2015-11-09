@@ -144,7 +144,8 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
     config.depthMask = GL_FALSE;
 
     if (bucket.hasCollisionBoxData()) {
-        config.stencilTest = true;
+        config.stencilOp.reset();
+        config.stencilTest = GL_TRUE;
 
         config.program = collisionBoxShader->program;
         collisionBoxShader->u_matrix = matrix;
@@ -158,19 +159,29 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
 
     }
 
-    // TODO remove the `|| true` when #1673 is implemented
-    const bool drawAcrossEdges = !(layout.text.allow_overlap || layout.icon.allow_overlap ||
-          layout.text.ignore_placement || layout.icon.ignore_placement) || true;
+    // TODO remove the `true ||` when #1673 is implemented
+    const bool drawAcrossEdges = true || !(layout.text.allow_overlap || layout.icon.allow_overlap ||
+          layout.text.ignore_placement || layout.icon.ignore_placement);
 
     // Disable the stencil test so that labels aren't clipped to tile boundaries.
     //
     // Layers with features that may be drawn overlapping aren't clipped. These
     // layers are sorted in the y direction, and to draw the correct ordering near
     // tile edges the icons are included in both tiles and clipped when drawing.
-    config.stencilTest = drawAcrossEdges ? false : true;
+    if (drawAcrossEdges) {
+        config.stencilTest = GL_FALSE;
+    } else {
+        config.stencilOp.reset();
+        config.stencilTest = GL_TRUE;
+    }
 
     if (bucket.hasIconData()) {
-        config.depthTest = layout.icon.rotation_alignment == RotationAlignmentType::Map;
+        if (layout.icon.rotation_alignment == RotationAlignmentType::Map) {
+            config.depthFunc.reset();
+            config.depthTest = GL_TRUE;
+        } else {
+            config.depthTest = GL_FALSE;
+        }
 
         bool sdf = bucket.sdfIcons;
 
@@ -242,7 +253,12 @@ void Painter::renderSymbol(SymbolBucket& bucket, const SymbolLayer& layer, const
     }
 
     if (bucket.hasTextData()) {
-        config.depthTest = layout.text.rotation_alignment == RotationAlignmentType::Map;
+        if (layout.text.rotation_alignment == RotationAlignmentType::Map) {
+            config.depthFunc.reset();
+            config.depthTest = GL_TRUE;
+        } else {
+            config.depthTest = GL_FALSE;
+        }
 
         glyphAtlas->bind();
 
