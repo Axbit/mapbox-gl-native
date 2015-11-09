@@ -2395,18 +2395,6 @@ public final class MapView extends FrameLayout {
         }
 
         boolean retVal = mGestureDetector.onTouchEvent(event);
-        /*
-        boolean inProgress = mRotateGestureDetector.isInProgress() || mScaleGestureDetector.isInProgress();
-        if (!retVal && !inProgress && mInLongPress && ) {
-            if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                if (mOnMarkerDragListener != null) {
-                    retVal = true;
-                    LatLng point = fromScreenLocation(new PointF(event.getX(), event.getY()));
-                   //TODO mOnMarkerDragListener.onMove(point);
-                }
-            }
-        }
-        */
         return retVal || super.onTouchEvent(event);
     }
 
